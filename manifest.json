@@ -1,0 +1,237 @@
+{
+  "id": "shap-e",
+  "kind": "model",
+  "type": "model",
+  "name": "Shap-E",
+  "displayName": "Shap-E Text to 3D",
+  "version": "0.1.0",
+  "description": "Modly model extension for OpenAI Shap-E text-to-3D generation. The node returns a GLB mesh preview and writes a PLY sidecar plus run metadata.",
+  "source": "https://github.com/DrHepa/modly-shap-e-extension",
+  "author": "DrHepa",
+  "license": {
+    "wrapper": "MIT",
+    "upstream_code": "MIT",
+    "weights": "MIT"
+  },
+  "generator_class": "ShapEGenerator",
+  "weight_owner_id": "generate",
+  "hf_repo": "openai/shap-e",
+  "download_check": "model_index.json",
+  "vram_gb": 8,
+  "recommended_vram_gb": 12,
+  "tags": [
+    "text-to-3d",
+    "text-to-mesh",
+    "shap-e",
+    "diffusers",
+    "glb",
+    "ply"
+  ],
+  "inputs": [
+    {
+      "id": "prompt",
+      "type": "text",
+      "required": true,
+      "label": "Prompt"
+    }
+  ],
+  "outputs": [
+    {
+      "id": "mesh",
+      "type": "mesh",
+      "formats": [
+        "glb",
+        "ply"
+      ],
+      "pbr": false,
+      "label": "GLB mesh with PLY sidecar"
+    }
+  ],
+  "asset_requirements": [
+    {
+      "id": "shap-e-weights",
+      "type": "hf_snapshot",
+      "repo": "openai/shap-e",
+      "owner_id": "generate",
+      "target": "models/shap-e/generate",
+      "download_check": "model_index.json",
+      "required": true,
+      "managed_by": "modly-ui",
+      "default_download": false,
+      "license": "MIT"
+    }
+  ],
+  "setup": {
+    "classification": "model-managed-setup",
+    "default_downloads": false,
+    "downloads_weights": false,
+    "argv_contract": {
+      "electron": "setup.py '{\"python_exe\":\"...\",\"ext_dir\":\"...\",\"gpu_sm\":86,\"cuda_version\":128}'",
+      "cli": "setup.py --python-exe /path/to/python --ext-dir /path/to/extension"
+    },
+    "weight_management": {
+      "managed_by": "modly-ui",
+      "expected_relative_path": "models/shap-e/generate/model_index.json",
+      "hf_repo": "openai/shap-e",
+      "download_check": "model_index.json"
+    },
+    "evidence": {
+      "status_path": ".modly/setup/setup-status.json",
+      "log_path": ".modly/setup/logs/setup.log"
+    }
+  },
+  "docs": {
+    "readme": "./README.md",
+    "setup_status": ".modly/setup/setup-status.json",
+    "setup_log": ".modly/setup/logs/setup.log"
+  },
+  "nodes": [
+    {
+      "id": "generate",
+      "type": "model.generate",
+      "name": "Shap-E Text to 3D",
+      "capability_id": "text-to-3d",
+      "description": "Generate a GLB mesh from a text prompt using OpenAI Shap-E via Diffusers. Weights are downloaded by Modly UI into the owner-scoped model directory.",
+      "input": "text",
+      "output": "mesh",
+      "output_formats": [
+        "glb",
+        "ply"
+      ],
+      "pbr": false,
+      "hf_repo": "openai/shap-e",
+      "download_check": "model_index.json",
+      "weight_owner_id": "generate",
+      "params_schema": [
+        {
+          "id": "prompt",
+          "label": "Prompt",
+          "type": "string",
+          "default": "",
+          "required": true,
+          "tooltip": "Text prompt used by Shap-E to generate a 3D mesh."
+        },
+        {
+          "id": "num_inference_steps",
+          "label": "Inference Steps",
+          "type": "int",
+          "default": 64,
+          "min": 1,
+          "max": 100,
+          "tooltip": "Number of denoising steps. More steps can improve quality but takes longer."
+        },
+        {
+          "id": "guidance_scale",
+          "label": "Guidance Scale",
+          "type": "float",
+          "default": 15.0,
+          "min": 0.0,
+          "max": 30.0,
+          "step": 0.5,
+          "tooltip": "Classifier-free guidance strength. Higher values follow the prompt more strongly."
+        },
+        {
+          "id": "frame_size",
+          "label": "Frame Size",
+          "type": "select",
+          "default": 256,
+          "options": [
+            {
+              "value": 64,
+              "label": "64 (fast smoke test)"
+            },
+            {
+              "value": 128,
+              "label": "128 (balanced)"
+            },
+            {
+              "value": 256,
+              "label": "256 (higher detail)"
+            }
+          ],
+          "tooltip": "Mesh renderer frame size used by Shap-E. Lower values are faster and use less VRAM."
+        },
+        {
+          "id": "seed",
+          "label": "Seed",
+          "type": "int",
+          "default": -1,
+          "min": -1,
+          "max": 2147483647,
+          "tooltip": "Seed for reproducibility. Use -1 for a random seed."
+        },
+        {
+          "id": "device",
+          "label": "Device",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            {
+              "value": "auto",
+              "label": "Auto"
+            },
+            {
+              "value": "cuda",
+              "label": "CUDA"
+            },
+            {
+              "value": "cpu",
+              "label": "CPU (slow)"
+            }
+          ],
+          "tooltip": "Runtime device. Auto uses CUDA when available."
+        },
+        {
+          "id": "torch_dtype",
+          "label": "Torch DType",
+          "type": "select",
+          "default": "auto",
+          "options": [
+            {
+              "value": "auto",
+              "label": "Auto"
+            },
+            {
+              "value": "float16",
+              "label": "float16"
+            },
+            {
+              "value": "bfloat16",
+              "label": "bfloat16"
+            },
+            {
+              "value": "float32",
+              "label": "float32"
+            }
+          ],
+          "tooltip": "Torch dtype used when loading Shap-E. Auto uses float16 on CUDA and float32 on CPU."
+        },
+        {
+          "id": "upright_rotation",
+          "label": "Upright Rotation",
+          "type": "select",
+          "default": "true",
+          "options": [
+            {
+              "value": "true",
+              "label": "Enabled"
+            },
+            {
+              "value": "false",
+              "label": "Disabled"
+            }
+          ],
+          "tooltip": "Apply the standard Shap-E -90° X-axis rotation before GLB export."
+        },
+        {
+          "id": "output_name",
+          "label": "Output Name",
+          "type": "string",
+          "default": "",
+          "required": false,
+          "tooltip": "Optional filename stem. The runtime sanitizes it and writes .glb/.ply outputs."
+        }
+      ]
+    }
+  ]
+}
