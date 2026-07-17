@@ -14,6 +14,7 @@ from pathlib import Path
 
 EXT_DIR = Path(__file__).resolve().parent
 REQUIRED_FILES = ("manifest.json", "setup.py", "generator.py", "requirements.txt")
+TEST_FILES = ("test_setup.py",)
 
 
 class ValidationError(Exception):
@@ -27,7 +28,14 @@ def expect(condition: bool, message: str) -> None:
 
 def parse_python(path: Path) -> None:
     try:
-        ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        source = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValidationError(
+            f"unable to read Python file {path}: {exc}. Ensure the file exists and is readable."
+        ) from exc
+
+    try:
+        ast.parse(source, filename=str(path))
     except SyntaxError as exc:
         raise ValidationError(f"{path.name} has invalid Python syntax: {exc}") from exc
 
@@ -122,6 +130,8 @@ def main() -> int:
         validate_runtime_contract_sources()
         parse_python(EXT_DIR / "setup.py")
         parse_python(EXT_DIR / "generator.py")
+        for filename in TEST_FILES:
+            parse_python(EXT_DIR / filename)
     except ValidationError as exc:
         print(f"INVALID: {exc}", file=sys.stderr)
         return 1
