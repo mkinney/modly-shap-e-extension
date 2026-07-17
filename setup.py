@@ -14,6 +14,7 @@ import argparse
 import importlib.util
 import json
 import os
+import platform
 import subprocess
 import sys
 import venv
@@ -39,12 +40,12 @@ BLACKWELL_TORCH_VERSION = "2.7.0"
 BLACKWELL_TORCHVISION_VERSION = "0.22.0"
 PYTORCH_CPU_INDEX_URL = "https://download.pytorch.org/whl/cpu"
 PYTORCH_CUDA_INDEX_URLS = {
-    "cu121": "https://download.pytorch.org/whl/cu121",
+    "cu118": "https://download.pytorch.org/whl/cu118",
     "cu124": "https://download.pytorch.org/whl/cu124",
     "cu128-blackwell": "https://download.pytorch.org/whl/cu128",
 }
 PYTORCH_LANE_CUDA_VERSION = {
-    "cu121": "12.1",
+    "cu118": "11.8",
     "cu124": "12.4",
     "cu128-blackwell": "12.8",
 }
@@ -223,21 +224,89 @@ def parse_setup_config(argv: list[str]) -> SetupConfig:
     )
 
 
-def select_torch_install_plan(config: SetupConfig) -> dict[str, Any]:
+def normalize_system_name(value: str | None) -> str:
+    raw = (value or "").strip().lower()
+    if raw in {"darwin", "mac", "macos"}:
+        return "darwin"
+    if raw.startswith("win"):
+        return "windows"
+    if raw == "linux":
+        return "linux"
+    return raw or "unknown"
+
+
+def normalize_machine_name(value: str | None) -> str:
+    raw = (value or "").strip().lower().replace("-", "_")
+    if raw in {"x86_64", "amd64"}:
+        return "x86_64"
+    if raw in {"arm64", "aarch64"}:
+        return "arm64"
+    return raw or "unknown"
+
+
+def select_torch_install_plan(
+    config: SetupConfig,
+    *,
+    system_name: str | None = None,
+    machine_name: str | None = None,
+) -> dict[str, Any]:
+    system = normalize_system_name(system_name or platform.system())
+    machine = normalize_machine_name(machine_name or platform.machine())
     cuda_signals: list[str] = []
     if config.gpu_sm is not None:
         cuda_signals.append(f"gpu_sm={config.gpu_sm}")
     if config.cuda_version is not None:
         cuda_signals.append(f"cuda_version={config.cuda_version}")
 
-    cuda_expected = bool(cuda_signals)
+    gpu_sm_positive = config.gpu_sm is not None and config.gpu_sm > 0
+    cuda_version_positive = config.cuda_version is not None and config.cuda_version > 0
+    gpu_disabled = config.gpu_sm is not None and config.gpu_sm <= 0
+    cuda_expected = not gpu_disabled and (gpu_sm_positive or cuda_version_positive)
     lane = "cpu"
     index_url = PYTORCH_CPU_INDEX_URL
     torch_version = DEFAULT_TORCH_VERSION
     torchvision_version = DEFAULT_TORCHVISION_VERSION
+    supported = True
     note = "No CUDA signal was provided; selecting the explicit PyTorch CPU wheel index."
 
-    if cuda_expected:
+    if system not in {"linux", "windows", "darwin"}:
+        supported = False
+        lane = "unsupported"
+        index_url = None
+        note = (
+            f"Unsupported platform/architecture {system}/{machine}; "
+            "supported systems are linux, windows, and darwin."
+        )
+    elif machine not in {"x86_64", "arm64"}:
+        supported = False
+        lane = "unsupported"
+        index_url = None
+        note = (
+            f"Unsupported platform/architecture {system}/{machine}; "
+            "supported architectures are x86_64 and arm64."
+        )
+    elif system == "darwin":
+        if machine == "arm64":
+            lane = "pypi"
+            index_url = None
+            note = "macOS arm64 detected; selecting ordinary PyPI PyTorch packages without a PyTorch wheel index."
+        else:
+            supported = False
+            lane = "unsupported"
+            index_url = None
+            note = "macOS x86_64 is not supported by this extension setup; use macOS arm64, Linux, or Windows."
+    elif not cuda_expected:
+        if machine == "arm64":
+            lane = "pypi"
+            index_url = None
+            if gpu_disabled:
+                note = "ARM64 with gpu_sm <= 0 was reported; selecting ordinary PyPI CPU packages."
+            else:
+                note = "No CUDA signal was provided on ARM64; selecting ordinary PyPI CPU packages."
+        elif gpu_disabled:
+            note = "gpu_sm <= 0 was reported; selecting CPU wheels."
+
+    if supported and cuda_expected and system != "darwin":
         blackwell_required = (
             (config.gpu_sm is not None and config.gpu_sm >= 120)
             or (config.cuda_version is not None and config.cuda_version >= 128)
@@ -248,22 +317,29 @@ def select_torch_install_plan(config: SetupConfig) -> dict[str, Any]:
             torch_version = BLACKWELL_TORCH_VERSION
             torchvision_version = BLACKWELL_TORCHVISION_VERSION
             note = "GB10/sm_12x or CUDA 12.8+ detected; selecting PyTorch cu128 Blackwell lane."
+        elif machine == "arm64":
+            lane = "pypi"
+            index_url = None
+            note = "ARM64 non-Blackwell CUDA wheels are not available; selecting ordinary PyPI CPU packages."
         elif config.cuda_version is None:
-            lane = "cu121"
+            lane = "cu118"
             index_url = PYTORCH_CUDA_INDEX_URLS[lane]
-            note = "CUDA is expected but cuda_version was not provided; selecting cu121 fallback."
-        elif config.cuda_version >= 124:
+            note = "CUDA is expected on x86_64 but cuda_version was not provided; selecting cu118 fallback."
+        elif 124 <= config.cuda_version <= 127:
             lane = "cu124"
             index_url = PYTORCH_CUDA_INDEX_URLS[lane]
-            note = "CUDA 12.4+ detected; selecting PyTorch cu124 wheel index."
-        elif config.cuda_version >= 121:
-            lane = "cu121"
+            note = "CUDA 12.4-12.7 detected on x86_64; selecting PyTorch cu124 wheel index."
+        elif 118 <= config.cuda_version <= 123:
+            lane = "cu118"
             index_url = PYTORCH_CUDA_INDEX_URLS[lane]
-            note = "CUDA 12.1+ detected; selecting PyTorch cu121 wheel index."
+            note = "CUDA 11.8-12.3 detected on x86_64; selecting PyTorch cu118 wheel index."
         else:
-            note = f"CUDA version {config.cuda_version} is below supported cu121/cu124 lanes; selecting CPU wheels."
+            note = f"CUDA version {config.cuda_version} is below supported cu118/cu124 lanes; selecting CPU wheels."
 
     return {
+        "supported": supported,
+        "platform_system": system,
+        "platform_machine": machine,
         "cuda_expected": cuda_expected,
         "cuda_signals": cuda_signals,
         "lane": lane,
@@ -337,26 +413,47 @@ def torch_reinstall_needed(probe: dict[str, Any], plan: dict[str, Any]) -> bool:
         return True
     torch_info = probe.get("torch") or {}
     torchvision_info = probe.get("torchvision") or {}
-    torch_version = str(torch_info.get("version") or "").split("+", 1)[0]
-    torchvision_version = str(torchvision_info.get("version") or "").split("+", 1)[0]
+    torch_full_version = str(torch_info.get("version") or "")
+    torchvision_full_version = str(torchvision_info.get("version") or "")
+    torch_version = torch_full_version.split("+", 1)[0]
+    torchvision_version = torchvision_full_version.split("+", 1)[0]
     if torch_version != str(plan.get("torch_version")):
         return True
     if torchvision_version != str(plan.get("torchvision_version")):
         return True
-    if plan["lane"].startswith("cu") and not torch_info.get("cuda_version"):
-        return True
-    expected_cuda = PYTORCH_LANE_CUDA_VERSION.get(plan["lane"])
+    lane = str(plan["lane"])
+    torch_local_tag = torch_full_version.partition("+")[2]
+    torchvision_local_tag = torchvision_full_version.partition("+")[2]
+    if lane in {"cpu", "pypi"}:
+        if torch_info.get("cuda_version"):
+            return True
+        if torch_local_tag.startswith("cu") or torchvision_local_tag.startswith("cu"):
+            return True
+    if lane.startswith("cu"):
+        expected_local_tag = lane.split("-", 1)[0]
+        if torch_local_tag != expected_local_tag or torchvision_local_tag != expected_local_tag:
+            return True
+        if not torch_info.get("cuda_version"):
+            return True
+    expected_cuda = PYTORCH_LANE_CUDA_VERSION.get(lane)
     if expected_cuda and str(torch_info.get("cuda_version")) != expected_cuda:
         return True
     return False
 
 
 def pip_install_torch(python_exe: str | Path, log_path: Path, plan: dict[str, Any], *, force_reinstall: bool) -> None:
-    cmd = [str(python_exe), "-m", "pip", "install", "--index-url", str(plan["index_url"]), *PIP_FLAGS]
+    if not plan.get("supported", True):
+        raise RuntimeError(str(plan.get("note") or "Unsupported PyTorch install lane."))
+
+    cmd = [str(python_exe), "-m", "pip", "install"]
+    if plan.get("index_url"):
+        cmd.extend(["--index-url", str(plan["index_url"])])
+    cmd.extend(PIP_FLAGS)
     if force_reinstall:
         cmd.append("--force-reinstall")
     cmd.extend(str(package) for package in plan["packages"])
-    log(f"Installing PyTorch lane {plan['lane']} from {plan['index_url']}")
+    source = plan["index_url"] if plan.get("index_url") else "PyPI"
+    log(f"Installing PyTorch lane {plan['lane']} from {source}")
     run_command(cmd, log_path)
 
 
@@ -444,6 +541,9 @@ def main(argv: list[str]) -> int:
     }
 
     try:
+        if not details["torch_install"].get("supported", True):
+            raise RuntimeError(str(details["torch_install"].get("note") or "Unsupported PyTorch install lane."))
+
         if not config.validate_only:
             details["venv"] = ensure_venv(config, log_path)
         else:

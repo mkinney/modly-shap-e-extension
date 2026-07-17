@@ -26,7 +26,19 @@ The repository contains the Modly integration, dependency setup, and runtime ada
 - A model snapshot downloaded by Modly from `openai/shap-e`.
 - CPU or NVIDIA CUDA execution. CPU is supported but expected to be slow.
 
-The setup script selects CPU, CUDA 12.1, CUDA 12.4, or CUDA 12.8/Blackwell PyTorch wheels according to `gpu_sm` and `cuda_version`. If no CUDA signal is supplied, it selects CPU wheels. The manifest declares 8 GB VRAM and recommends 12 GB; actual usage depends on the selected parameters and runtime environment.
+The setup script selects the PyTorch install lane from the reported platform, architecture, `gpu_sm`, and `cuda_version` values:
+
+- macOS arm64 uses ordinary PyPI packages without a PyTorch `--index-url`.
+- macOS x86_64 is rejected with a clear unsupported-platform error.
+- `gpu_sm <= 0` is treated as CPU, even if another CUDA field is present.
+- No CUDA signal selects CPU packages.
+- Linux/Windows x86_64 with CUDA 11.8-12.3 selects `cu118`.
+- Linux/Windows x86_64 with CUDA 12.4-12.7 selects `cu124`.
+- Blackwell (`gpu_sm >= 120` or CUDA 12.8+) selects `cu128` and uses torch `2.7.0` / torchvision `0.22.0`, including ARM64 Blackwell systems.
+- Non-Blackwell ARM64 never selects unavailable CUDA wheels; it falls back to ordinary PyPI CPU packages.
+- If x86_64 reports a positive non-Blackwell `gpu_sm` but omits `cuda_version`, setup uses the `cu118` fallback.
+
+The default non-Blackwell package versions are torch `2.6.0` and torchvision `0.21.0`. The manifest declares 8 GB VRAM and recommends 12 GB; actual usage depends on the selected parameters and runtime environment.
 
 ## Setup
 
@@ -52,7 +64,7 @@ python setup.py \
   --cuda-version 124
 ```
 
-Use hardware values reported by Modly rather than copying the example values blindly. Setup creates `venv/` inside the installed extension and writes:
+Use hardware values reported by Modly rather than copying the example values blindly. Repair uses the same lane selection rules, compares the installed torch/torchvision versions and CUDA runtime against the selected lane, and reinstalls PyTorch only when the current environment is stale or incompatible. Existing `0.1.0` installations must run **Repair** after updating so torch `2.5.1` is replaced by the patched lane. Setup creates `venv/` inside the installed extension and writes:
 
 ```text
 .modly/setup/setup-status.json

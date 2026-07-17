@@ -4,7 +4,7 @@
   "type": "model",
   "name": "Shap-E",
   "displayName": "Shap-E Text to 3D",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Modly model extension for OpenAI Shap-E text-to-3D generation. The node returns a GLB mesh preview and writes a PLY sidecar plus run metadata.",
   "source": "https://github.com/DrHepa/modly-shap-e-extension",
   "author": "DrHepa",
