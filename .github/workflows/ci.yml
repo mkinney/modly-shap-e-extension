@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main, master]
   pull_request:
@@ -18,13 +19,16 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Run validate_extension.py
         run: python validate_extension.py
 
-  test-setup:
-    name: Test setup (${{ matrix.os }})
+  # Network-free setup unit tests on three hosted OS images. Does NOT perform
+  # real setup/Repair, dependency installation, Modly installation, model
+  # loading, or generation - just runs unit tests
+  setup-unit-tests:
+    name: Setup unit tests (${{ matrix.os }}, Python 3.11)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -36,7 +40,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
       - name: Run test_setup.py
         run: python -m unittest test_setup.py -v
