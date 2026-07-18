@@ -26,7 +26,7 @@ jobs:
 
   # Network-free setup unit tests on three hosted OS images. Does NOT perform
   # real setup/Repair, dependency installation, Modly installation, model
-  # loading, or generation - just runs unit tests
+  # loading, or generation — only lane-selection and repair-decision logic.
   setup-unit-tests:
     name: Setup unit tests (${{ matrix.os }}, Python 3.11)
     runs-on: ${{ matrix.os }}
